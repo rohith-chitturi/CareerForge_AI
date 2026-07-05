@@ -3,9 +3,13 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, START, END
 from agents.state import AppState
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Initialize LLM
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0)
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.2)
 
 def router_node(state: AppState):
     """
@@ -25,29 +29,54 @@ def router_node(state: AppState):
     return {"current_agent": next_agent}
 
 def router_condition(state: AppState) -> Literal["resume_agent", "ats_agent", "interview_agent", "career_mentor_agent"]:
-    """
-    LangGraph conditional edge routing based on state.
-    """
     return state["current_agent"]
 
-def dummy_agent_node(agent_name: str, response_prefix: str):
-    """
-    Factory for simple agent nodes for structure.
-    """
-    def node(state: AppState):
-        msg = f"[{agent_name}] {response_prefix}: I have analyzed your request regarding '{state['messages'][-1].content}'."
-        return {"messages": [SystemMessage(content=msg)]}
-    return node
+def resume_agent_node(state: AppState):
+    prompt = f"""You are an expert Resume Parsing Agent.
+The user is asking about their resume.
+User message: {state['messages'][-1].content}
+
+Provide professional, concise advice regarding resume structuring and parsing.
+"""
+    response = llm.invoke(prompt)
+    return {"messages": [SystemMessage(content=response.content)]}
+
+def ats_agent_node(state: AppState):
+    prompt = f"""You are an ATS (Applicant Tracking System) Optimization Agent.
+User message: {state['messages'][-1].content}
+
+Provide insights on ATS keywords, formatting, and scoring optimization.
+"""
+    response = llm.invoke(prompt)
+    return {"messages": [SystemMessage(content=response.content)]}
+
+def interview_agent_node(state: AppState):
+    prompt = f"""You are a Technical Interview Agent.
+User message: {state['messages'][-1].content}
+
+Provide a short mock interview question or specific interview preparation advice.
+"""
+    response = llm.invoke(prompt)
+    return {"messages": [SystemMessage(content=response.content)]}
+
+def career_mentor_agent_node(state: AppState):
+    prompt = f"""You are an Enterprise AI Career Mentor.
+User message: {state['messages'][-1].content}
+
+Provide strategic career advice, roadmap suggestions, or general mentoring. Maintain a highly professional and encouraging tone.
+"""
+    response = llm.invoke(prompt)
+    return {"messages": [SystemMessage(content=response.content)]}
 
 def build_workflow():
     workflow = StateGraph(AppState)
     
     # Add nodes
     workflow.add_node("router", router_node)
-    workflow.add_node("resume_agent", dummy_agent_node("ResumeAgent", "Processing resume details"))
-    workflow.add_node("ats_agent", dummy_agent_node("ATSAgent", "Calculating ATS score and keywords"))
-    workflow.add_node("interview_agent", dummy_agent_node("InterviewAgent", "Generating mock interview scenario"))
-    workflow.add_node("career_mentor_agent", dummy_agent_node("CareerMentor", "Providing career advice"))
+    workflow.add_node("resume_agent", resume_agent_node)
+    workflow.add_node("ats_agent", ats_agent_node)
+    workflow.add_node("interview_agent", interview_agent_node)
+    workflow.add_node("career_mentor_agent", career_mentor_agent_node)
     
     # Edges
     workflow.add_edge(START, "router")
@@ -71,6 +100,8 @@ def build_workflow():
     
     return workflow.compile()
 
+# Singleton instance
+app = build_workflow()
+
 if __name__ == "__main__":
-    app = build_workflow()
     print("LangGraph workflow compiled successfully.")
