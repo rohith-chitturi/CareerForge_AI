@@ -1,10 +1,11 @@
-import { motion } from 'framer-motion';
+import { motion, useMotionValue, useTransform } from 'framer-motion';
 import { 
   LineChart, Line, ResponsiveContainer,
   Radar, RadarChart, PolarGrid, PolarAngleAxis, Tooltip as RechartsTooltip
 } from 'recharts';
-import { FileText, Target, Zap, Activity, BrainCircuit } from 'lucide-react';
-import React from 'react';
+import { FileText, Target, Zap, Activity, BrainCircuit, Upload, Loader2, CheckCircle2 } from 'lucide-react';
+import React, { useState } from 'react';
+import axios from 'axios';
 
 const mockProgressData = [
   { name: 'W1', problems: 10, hours: 15 },
@@ -24,6 +25,35 @@ const mockSkillData = [
 ];
 
 export default function Dashboard() {
+  const [file, setFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [atsScore, setAtsScore] = useState<number | null>(null);
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const uploadedFile = e.target.files[0];
+    setFile(uploadedFile);
+    setIsUploading(true);
+
+    const formData = new FormData();
+    formData.append('file', uploadedFile);
+    formData.append('job_description', 'Looking for a Senior Software Engineer with Python and React experience.');
+
+    try {
+      const res = await axios.post('http://localhost:8000/api/v1/analyze-resume', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setAtsScore(res.data.ats_score);
+      setAiMessage(res.data.message);
+    } catch (err) {
+      console.error(err);
+      setAiMessage("Failed to connect to LangGraph Resume Agent.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   return (
     <div className="space-y-8 pb-16 relative z-10 text-primary-100 max-w-7xl mx-auto">
       <motion.div 
@@ -79,34 +109,35 @@ export default function Dashboard() {
           <div className="absolute -bottom-20 -right-20 w-96 h-96 bg-primary-700/10 blur-[100px] rounded-full group-hover:bg-primary-600/20 transition-colors duration-1000" />
         </BentoBox>
 
-        {/* Small Metric 1 */}
-        <BentoBox className="flex flex-col justify-between">
-          <div className="flex justify-between items-start">
-            <div className="p-4 bg-primary-800/20 rounded-2xl text-primary-300">
-              <FileText strokeWidth={1.5} className="h-6 w-6" />
-            </div>
-            <span className="text-sage-400 text-sm font-medium bg-sage-900/30 px-3 py-1 rounded-full border border-sage-800/30">+5%</span>
-          </div>
-          <div>
-            <p className="text-primary-400 text-sm font-medium uppercase tracking-widest">ATS Resonance</p>
-            <h4 className="text-5xl font-light text-primary-50 mt-2">85%</h4>
-          </div>
+        {/* Dynamic Resume AI Uploader Box */}
+        <BentoBox className="md:col-span-1 md:row-span-2 flex flex-col justify-center items-center text-center relative overflow-hidden">
+           <div className="relative z-10 flex flex-col items-center justify-center h-full w-full">
+            {isUploading ? (
+              <div className="flex flex-col items-center space-y-4">
+                <Loader2 className="h-10 w-10 text-sage-400 animate-spin" />
+                <p className="text-primary-300 text-sm font-medium">Extracting vectors...</p>
+              </div>
+            ) : atsScore !== null ? (
+              <div className="flex flex-col items-center space-y-2 animate-in zoom-in duration-500">
+                <CheckCircle2 className="h-10 w-10 text-sage-400 mb-2" />
+                <h4 className="text-5xl font-light text-primary-50">{atsScore}%</h4>
+                <p className="text-primary-400 text-xs font-semibold uppercase tracking-widest mt-2">ATS Resonance</p>
+                <p className="text-xs text-primary-300 mt-4 leading-relaxed px-2 line-clamp-3">{aiMessage}</p>
+              </div>
+            ) : (
+              <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer hover:scale-105 transition-transform duration-300">
+                <div className="p-5 bg-primary-800/20 rounded-3xl text-primary-300 mb-4 shadow-inner">
+                  <Upload strokeWidth={1.5} className="h-8 w-8" />
+                </div>
+                <h3 className="text-lg font-medium text-primary-100">AI Resume Parse</h3>
+                <p className="text-xs text-primary-400 mt-2 px-4">Upload PDF to engage LangGraph Agents</p>
+                <input type="file" className="hidden" accept=".pdf" onChange={handleFileUpload} />
+              </label>
+            )}
+           </div>
         </BentoBox>
 
-        {/* Small Metric 2 */}
-        <BentoBox className="flex flex-col justify-between bg-primary-900/10 border-primary-800/20">
-          <div className="flex justify-between items-start">
-            <div className="p-4 bg-sage-800/20 rounded-2xl text-sage-300">
-              <Target strokeWidth={1.5} className="h-6 w-6" />
-            </div>
-          </div>
-          <div>
-            <p className="text-primary-400 text-sm font-medium uppercase tracking-widest">Interview Readiness</p>
-            <h4 className="text-5xl font-light text-sage-100 mt-2">B+</h4>
-          </div>
-        </BentoBox>
-
-        {/* Radar Chart Box (Col Span 1, Row Span 2) - Moves to next row in grid */}
+        {/* Radar Chart Box */}
         <BentoBox className="md:col-span-1 md:row-span-2 relative flex flex-col items-center justify-center overflow-hidden">
           <h3 className="absolute top-8 left-8 text-xl font-medium text-primary-100 tracking-tight z-20">Skill Radar</h3>
           <div className="absolute inset-0 pt-16 pb-4">
