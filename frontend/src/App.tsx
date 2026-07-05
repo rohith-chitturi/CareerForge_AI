@@ -11,7 +11,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
-        <div className="min-h-screen bg-background text-slate-200">
+        <div className="min-h-screen bg-background text-primary-100 font-sans selection:bg-sage-600/30">
           <Navbar />
           <main className="container mx-auto px-4 py-8">
             <Routes>

@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.routes import router as api_router
+from database import engine, Base
+import models
 
+# Create database tables
+Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="CareerForgeAI API",
     description="Enterprise AI Career Mentor & Placement Intelligence Platform",
