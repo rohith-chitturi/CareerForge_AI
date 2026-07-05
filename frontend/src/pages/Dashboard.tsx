@@ -1,10 +1,10 @@
-import { motion, useMotionValue, useTransform } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { 
   LineChart, Line, ResponsiveContainer,
   Radar, RadarChart, PolarGrid, PolarAngleAxis, Tooltip as RechartsTooltip
 } from 'recharts';
-import { FileText, Target, Zap, Activity, BrainCircuit, Upload, Loader2, CheckCircle2 } from 'lucide-react';
-import React, { useState } from 'react';
+import { FileText, Target, Zap, Activity, BrainCircuit, Upload, Loader2, CheckCircle2, Compass } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
 const mockProgressData = [
@@ -29,6 +29,20 @@ export default function Dashboard() {
   const [isUploading, setIsUploading] = useState(false);
   const [atsScore, setAtsScore] = useState<number | null>(null);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
+  const [recommendations, setRecommendations] = useState<any[]>([]);
+
+  const fetchRecommendations = async () => {
+    try {
+      const res = await axios.get('http://localhost:8000/api/v1/recommendations?user_id=1');
+      setRecommendations(res.data.recommendations || []);
+    } catch (err) {
+      console.error("Failed to fetch recommendations", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchRecommendations();
+  }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -46,6 +60,9 @@ export default function Dashboard() {
       });
       setAtsScore(res.data.ats_score);
       setAiMessage(res.data.message);
+      
+      // Refresh recommendations based on the new resume's missing skills
+      fetchRecommendations();
     } catch (err) {
       console.error(err);
       setAiMessage("Failed to connect to LangGraph Resume Agent.");
@@ -137,20 +154,6 @@ export default function Dashboard() {
            </div>
         </BentoBox>
 
-        {/* Radar Chart Box */}
-        <BentoBox className="md:col-span-1 md:row-span-2 relative flex flex-col items-center justify-center overflow-hidden">
-          <h3 className="absolute top-8 left-8 text-xl font-medium text-primary-100 tracking-tight z-20">Skill Radar</h3>
-          <div className="absolute inset-0 pt-16 pb-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart cx="50%" cy="50%" outerRadius="65%" data={mockSkillData}>
-                <PolarGrid stroke="rgba(255,255,255,0.05)" />
-                <PolarAngleAxis dataKey="subject" tick={{ fill: '#d2bab0', fontSize: 11, fontWeight: 300 }} />
-                <Radar name="Proficiency" dataKey="A" stroke="#869d7a" strokeWidth={3} fill="#869d7a" fillOpacity={0.15} />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
-        </BentoBox>
-
         {/* Wide Metric (Col Span 2, Row Span 1) */}
         <BentoBox className="md:col-span-2 flex items-center justify-between px-10">
           <div className="flex items-center space-x-6">
@@ -169,16 +172,28 @@ export default function Dashboard() {
           </div>
         </BentoBox>
 
-        {/* Standard Metric (Col Span 1, Row Span 1) */}
-        <BentoBox className="flex flex-col justify-between">
-          <div className="flex justify-between items-start">
-            <div className="p-4 bg-primary-800/20 rounded-2xl text-primary-300">
-              <Activity strokeWidth={1.5} className="h-6 w-6" />
-            </div>
+        {/* Dynamic RAG Recommendations (Col Span 2, Row Span 1) */}
+        <BentoBox className="md:col-span-2 flex flex-col justify-center px-10 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-6 opacity-20 group-hover:opacity-40 transition-opacity">
+            <Compass className="h-24 w-24 text-sage-400" />
           </div>
-          <div>
-            <p className="text-primary-400 text-sm font-medium uppercase tracking-widest">Study Hours</p>
-            <h4 className="text-5xl font-light text-primary-50 mt-2">85h</h4>
+          <h3 className="text-lg font-medium text-primary-100 mb-4 relative z-10">AI Directed Path</h3>
+          <div className="space-y-3 relative z-10">
+            {recommendations.length > 0 ? recommendations.map((rec, idx) => (
+              <div key={idx} className="flex justify-between items-center bg-surface/60 p-3 rounded-2xl border border-primary-900/50 backdrop-blur-md">
+                <div>
+                  <p className="text-sm text-primary-200">{rec.title}</p>
+                  <p className="text-xs text-primary-400 mt-1 uppercase tracking-wider">{rec.type}</p>
+                </div>
+                <div className="flex space-x-1">
+                   {rec.skills?.slice(0,2).map((s: string, i: number) => (
+                      <span key={i} className="text-[10px] bg-primary-800/30 text-sage-300 px-2 py-1 rounded-md">{s}</span>
+                   ))}
+                </div>
+              </div>
+            )) : (
+              <p className="text-sm text-primary-400 italic">Upload a resume to generate FAISS recommendations.</p>
+            )}
           </div>
         </BentoBox>
 
