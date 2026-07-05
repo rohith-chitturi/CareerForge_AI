@@ -1,0 +1,42 @@
+name: CareerForgeAI CI/CD
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r backend/requirements.txt
+        pip install pytest httpx
+    - name: Test with pytest
+      run: |
+        pytest tests/backend/
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Use Node.js 20.x
+      uses: actions/setup-node@v3
+      with:
+        node-version: "20.x"
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm ci
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
