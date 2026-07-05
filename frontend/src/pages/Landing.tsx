@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Sphere, MeshDistortMaterial, Float, Environment } from '@react-three/drei';
 import { motion } from 'framer-motion';
@@ -12,7 +12,7 @@ function KnowledgeGraph() {
   const linesRef = useRef<THREE.LineSegments>(null!);
   
   // Generate stable nodes for the career network
-  const [positions, linePositions] = React.useMemo(() => {
+  const [positions, linePositions] = useMemo(() => {
     const nodes: THREE.Vector3[] = [];
     const numNodes = 150;
     const radius = 2.5;
