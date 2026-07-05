@@ -6,56 +6,87 @@ import { ArrowRight, Sparkles, Brain, Code2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import * as THREE from 'three';
 
-function OrganicBlobs() {
-  const blob1 = useRef<THREE.Mesh>(null!);
-  const blob2 = useRef<THREE.Mesh>(null!);
+function KnowledgeGraph() {
+  const groupRef = useRef<THREE.Group>(null!);
+  const pointsRef = useRef<THREE.Points>(null!);
+  const linesRef = useRef<THREE.LineSegments>(null!);
+  
+  // Generate stable nodes for the career network
+  const [positions, linePositions] = React.useMemo(() => {
+    const nodes: THREE.Vector3[] = [];
+    const numNodes = 150;
+    const radius = 2.5;
 
-  useFrame((state) => {
-    const t = state.clock.getElapsedTime();
-    if (blob1.current) {
-      blob1.current.rotation.x = Math.cos(t / 4) / 2;
-      blob1.current.rotation.y = Math.sin(t / 4) / 2;
+    for (let i = 0; i < numNodes; i++) {
+      const u = Math.random();
+      const v = Math.random();
+      const theta = 2 * Math.PI * u;
+      const phi = Math.acos(2 * v - 1);
+      
+      const r = radius * Math.cbrt(Math.random());
+      const x = r * Math.sin(phi) * Math.cos(theta);
+      const y = r * Math.sin(phi) * Math.sin(theta);
+      const z = r * Math.cos(phi);
+      
+      nodes.push(new THREE.Vector3(x, y, z));
     }
-    if (blob2.current) {
-      blob2.current.rotation.x = Math.sin(t / 4) / 2;
-      blob2.current.rotation.y = Math.cos(t / 4) / 2;
+
+    const linePoints: number[] = [];
+    // Connect nodes that are close to represent skill relationships
+    for (let i = 0; i < numNodes; i++) {
+      for (let j = i + 1; j < numNodes; j++) {
+        if (nodes[i].distanceTo(nodes[j]) < 0.8) {
+          linePoints.push(
+            nodes[i].x, nodes[i].y, nodes[i].z,
+            nodes[j].x, nodes[j].y, nodes[j].z
+          );
+        }
+      }
+    }
+
+    const posArray = new Float32Array(nodes.length * 3);
+    for(let i=0; i<nodes.length; i++) {
+      posArray[i*3] = nodes[i].x;
+      posArray[i*3+1] = nodes[i].y;
+      posArray[i*3+2] = nodes[i].z;
+    }
+
+    return [posArray, new Float32Array(linePoints)];
+  }, []);
+
+  useFrame((state, delta) => {
+    if (groupRef.current) {
+      groupRef.current.rotation.y += delta * 0.05;
+      groupRef.current.rotation.x += delta * 0.02;
     }
   });
 
   return (
-    <>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[10, 10, 5]} intensity={1} color="#eaddd7" />
-      <directionalLight position={[-10, -10, -5]} intensity={0.5} color="#869d7a" />
-      
-      <Float speed={2} rotationIntensity={1} floatIntensity={2}>
-        <Sphere ref={blob1} args={[1, 64, 64]} position={[-1.5, 0, -2]} scale={1.5}>
-          <MeshDistortMaterial
-            color="#945d49" // Terracotta
-            attach="material"
-            distort={0.4}
-            speed={2}
-            roughness={0.4}
-            metalness={0.1}
+    <group ref={groupRef} position={[0, 0, 0]}>
+      <points ref={pointsRef}>
+        <bufferGeometry>
+          <bufferAttribute
+            attach="attributes-position"
+            count={positions.length / 3}
+            array={positions}
+            itemSize={3}
           />
-        </Sphere>
-      </Float>
+        </bufferGeometry>
+        <pointsMaterial size={0.05} color="#b38270" transparent opacity={0.8} />
+      </points>
 
-      <Float speed={1.5} rotationIntensity={1.5} floatIntensity={1.5}>
-        <Sphere ref={blob2} args={[1, 64, 64]} position={[1.5, 1, -3]} scale={1.2}>
-          <MeshDistortMaterial
-            color="#869d7a" // Sage
-            attach="material"
-            distort={0.5}
-            speed={1.5}
-            roughness={0.5}
-            metalness={0.1}
+      <lineSegments ref={linesRef}>
+        <bufferGeometry>
+          <bufferAttribute
+            attach="attributes-position"
+            count={linePositions.length / 3}
+            array={linePositions}
+            itemSize={3}
           />
-        </Sphere>
-      </Float>
-      
-      <Environment preset="city" />
-    </>
+        </bufferGeometry>
+        <lineBasicMaterial color="#869d7a" transparent opacity={0.2} linewidth={1} />
+      </lineSegments>
+    </group>
   );
 }
 
@@ -63,10 +94,10 @@ export default function Landing() {
   return (
     <div className="relative flex flex-col items-center justify-center min-h-[90vh] text-center space-y-12 overflow-hidden bg-background text-primary-100">
       
-      {/* 3D Organic Background */}
+      {/* 3D Knowledge Graph Background */}
       <div className="absolute inset-0 z-0 opacity-80 pointer-events-none">
         <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
-          <OrganicBlobs />
+          <KnowledgeGraph />
         </Canvas>
       </div>
 
