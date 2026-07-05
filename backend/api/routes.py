@@ -1,9 +1,13 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 from agents.coordinator import app as workflow_app
 from langchain_core.messages import HumanMessage
 from resume_parser.parser import ResumeParser
+from sqlalchemy.orm import Session
+from database import get_db
+import models
+from vector_store import get_recommendations_for_skills
 import tempfile
 import os
 import json
@@ -15,9 +19,9 @@ class ChatRequest(BaseModel):
     session_id: str
 
 @router.post("/analyze-resume")
-async def analyze_resume(file: UploadFile = File(...), job_description: Optional[str] = Form(None)):
+async def analyze_resume(file: UploadFile = File(...), job_description: Optional[str] = Form(None), db: Session = Depends(get_db)):
     """
-    Endpoint to parse resume PDF, calculate ATS score, and classify the role using LangGraph.
+    Endpoint to parse resume PDF, calculate ATS score, classify the role, and save to DB.
     """
     try:
         # Save uploaded file temporarily
@@ -29,8 +33,6 @@ async def analyze_resume(file: UploadFile = File(...), job_description: Optional
         # Extract text and entities
         parser = ResumeParser(tmp_path)
         parsed_data = parser.parse()
-        
-        # Cleanup temp file
         os.remove(tmp_path)
         
         # Build prompt for LangGraph resume agent
@@ -49,9 +51,8 @@ async def analyze_resume(file: UploadFile = File(...), job_description: Optional
         result = workflow_app.invoke(initial_state)
         response_msg = result["messages"][-1].content
         
-        # Parse the JSON response from Gemini
+        # Parse JSON response
         try:
-            # Clean up markdown code blocks if Gemini returns them
             cleaned_resp = response_msg.replace('```json', '').replace('```', '').strip()
             ai_data = json.loads(cleaned_resp)
         except:
@@ -61,6 +62,25 @@ async def analyze_resume(file: UploadFile = File(...), job_description: Optional
                 "missing_skills": [],
                 "message": response_msg
             }
+            
+        # Optional: ensure a dummy user exists for now
+        user = db.query(models.User).first()
+        if not user:
+            user = models.User(email="test@example.com", hashed_password="fake")
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        # Save to DB
+        analysis = models.ResumeAnalysis(
+            user_id=user.id,
+            ats_score=ai_data.get("ats_score", 0),
+            classification=ai_data.get("classification", ""),
+            missing_skills=ai_data.get("missing_skills", []),
+            raw_text=parser.text
+        )
+        db.add(analysis)
+        db.commit()
 
         return {
             "status": "success",
@@ -72,11 +92,18 @@ async def analyze_resume(file: UploadFile = File(...), job_description: Optional
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/chat")
-async def chat_with_mentor(req: ChatRequest):
+async def chat_with_mentor(req: ChatRequest, db: Session = Depends(get_db)):
     """
-    Endpoint to interact with the LangGraph Coordinator Agent.
+    Endpoint to interact with the LangGraph Coordinator Agent and save chat history.
     """
     try:
+        user = db.query(models.User).first()
+        if not user:
+            user = models.User(email="test@example.com", hashed_password="fake")
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            
         initial_state = {
             "messages": [HumanMessage(content=req.message)],
             "current_agent": "career_mentor_agent"
@@ -85,9 +112,50 @@ async def chat_with_mentor(req: ChatRequest):
         result = workflow_app.invoke(initial_state)
         response_msg = result["messages"][-1].content
         
+        # Save to ChatSession
+        chat_session = db.query(models.ChatSession).filter(models.ChatSession.user_id == user.id).first()
+        if not chat_session:
+            chat_session = models.ChatSession(user_id=user.id, messages=[])
+            db.add(chat_session)
+            db.commit()
+            db.refresh(chat_session)
+            
+        # Append message history (naive approach for demonstration)
+        current_msgs = list(chat_session.messages)
+        current_msgs.append({"role": "user", "content": req.message})
+        current_msgs.append({"role": "ai", "content": response_msg})
+        chat_session.messages = current_msgs
+        db.commit()
+        
         return {
             "status": "success",
             "response": response_msg
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/recommendations")
+async def get_recommendations(user_id: str, db: Session = Depends(get_db)):
+    """
+    Suggest courses and jobs using FAISS Vector Search based on the user's latest missing skills.
+    """
+    try:
+        user = db.query(models.User).first()
+        if not user:
+            return {"status": "success", "recommendations": []}
+            
+        latest_resume = db.query(models.ResumeAnalysis).filter(models.ResumeAnalysis.user_id == user.id).order_by(models.ResumeAnalysis.created_at.desc()).first()
+        
+        if not latest_resume or not latest_resume.missing_skills:
+            # Fallback if no resume analysis exists
+            fallback = get_recommendations_for_skills(["Python", "React"])
+            return {"status": "success", "recommendations": fallback}
+            
+        # Query FAISS vector store
+        recommendations = get_recommendations_for_skills(latest_resume.missing_skills)
+        return {
+            "status": "success",
+            "recommendations": recommendations
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -104,14 +172,4 @@ async def get_coding_analytics(user_id: str):
             "weak_topics": ["Dynamic Programming", "Graphs"],
             "strong_topics": ["Arrays", "Hash Tables"]
         }
-    }
-
-@router.get("/recommendations")
-async def get_recommendations(user_id: str):
-    return {
-        "status": "success",
-        "recommendations": [
-            {"type": "course", "title": "Advanced System Design", "url": "https://example.com/sys-design"},
-            {"type": "project", "title": "Build a Vector DB", "url": "https://example.com/proj-vector"}
-        ]
     }
