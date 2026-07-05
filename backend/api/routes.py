@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
+from agents.coordinator import app as workflow_app
+from langchain_core.messages import HumanMessage
 
 router = APIRouter()
 
@@ -17,7 +19,7 @@ async def analyze_resume(req: ResumeAnalysisRequest):
     """
     Endpoint to parse resume, calculate ATS score, and classify the role.
     """
-    # In a real scenario, this would call the agents or the ML models directly.
+    # Simulate processing (In production, this routes to the PyMuPDF/SpaCy parser pipeline)
     return {
         "status": "success",
         "ats_score": 85,
@@ -31,11 +33,25 @@ async def chat_with_mentor(req: ChatRequest):
     """
     Endpoint to interact with the LangGraph Coordinator Agent.
     """
-    # This would invoke the compiled LangGraph workflow.
-    return {
-        "status": "success",
-        "response": f"Mentor: I received your message about '{req.message}'. Let's discuss your career goals."
-    }
+    try:
+        # Initialize state with the user's message
+        initial_state = {
+            "messages": [HumanMessage(content=req.message)],
+            "current_agent": "career_mentor_agent"
+        }
+        
+        # Invoke the LangGraph workflow
+        result = workflow_app.invoke(initial_state)
+        
+        # Extract the last message from the agent
+        response_msg = result["messages"][-1].content
+        
+        return {
+            "status": "success",
+            "response": response_msg
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/analytics/coding")
 async def get_coding_analytics(user_id: str):
