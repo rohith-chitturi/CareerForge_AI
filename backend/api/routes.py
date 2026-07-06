@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 import models
 from vector_store import get_recommendations_for_skills
+from auth import get_current_user
 import tempfile
 import os
 import json
@@ -19,7 +20,7 @@ class ChatRequest(BaseModel):
     session_id: str
 
 @router.post("/analyze-resume")
-async def analyze_resume(file: UploadFile = File(...), job_description: Optional[str] = Form(None), db: Session = Depends(get_db)):
+async def analyze_resume(file: UploadFile = File(...), job_description: Optional[str] = Form(None), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     """
     Endpoint to parse resume PDF, calculate ATS score, classify the role, and save to DB.
     """
@@ -62,18 +63,10 @@ async def analyze_resume(file: UploadFile = File(...), job_description: Optional
                 "missing_skills": [],
                 "message": response_msg
             }
-            
-        # Optional: ensure a dummy user exists for now
-        user = db.query(models.User).first()
-        if not user:
-            user = models.User(email="test@example.com", hashed_password="fake")
-            db.add(user)
-            db.commit()
-            db.refresh(user)
 
         # Save to DB
         analysis = models.ResumeAnalysis(
-            user_id=user.id,
+            user_id=current_user.id,
             ats_score=ai_data.get("ats_score", 0),
             classification=ai_data.get("classification", ""),
             missing_skills=ai_data.get("missing_skills", []),
@@ -92,18 +85,11 @@ async def analyze_resume(file: UploadFile = File(...), job_description: Optional
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/chat")
-async def chat_with_mentor(req: ChatRequest, db: Session = Depends(get_db)):
+async def chat_with_mentor(req: ChatRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     """
     Endpoint to interact with the LangGraph Coordinator Agent and save chat history.
     """
     try:
-        user = db.query(models.User).first()
-        if not user:
-            user = models.User(email="test@example.com", hashed_password="fake")
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-            
         initial_state = {
             "messages": [HumanMessage(content=req.message)],
             "current_agent": "career_mentor_agent"
@@ -113,14 +99,14 @@ async def chat_with_mentor(req: ChatRequest, db: Session = Depends(get_db)):
         response_msg = result["messages"][-1].content
         
         # Save to ChatSession
-        chat_session = db.query(models.ChatSession).filter(models.ChatSession.user_id == user.id).first()
+        chat_session = db.query(models.ChatSession).filter(models.ChatSession.user_id == current_user.id).first()
         if not chat_session:
-            chat_session = models.ChatSession(user_id=user.id, messages=[])
+            chat_session = models.ChatSession(user_id=current_user.id, messages=[])
             db.add(chat_session)
             db.commit()
             db.refresh(chat_session)
             
-        # Append message history (naive approach for demonstration)
+        # Append message history
         current_msgs = list(chat_session.messages)
         current_msgs.append({"role": "user", "content": req.message})
         current_msgs.append({"role": "ai", "content": response_msg})
@@ -134,17 +120,23 @@ async def chat_with_mentor(req: ChatRequest, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/chat/history")
+async def get_chat_history(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """
+    Fetch the authenticated user's historical AI Chat logs.
+    """
+    chat_session = db.query(models.ChatSession).filter(models.ChatSession.user_id == current_user.id).first()
+    if not chat_session:
+        return {"status": "success", "messages": []}
+    return {"status": "success", "messages": chat_session.messages}
+
 @router.get("/recommendations")
-async def get_recommendations(user_id: str, db: Session = Depends(get_db)):
+async def get_recommendations(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     """
     Suggest courses and jobs using FAISS Vector Search based on the user's latest missing skills.
     """
     try:
-        user = db.query(models.User).first()
-        if not user:
-            return {"status": "success", "recommendations": []}
-            
-        latest_resume = db.query(models.ResumeAnalysis).filter(models.ResumeAnalysis.user_id == user.id).order_by(models.ResumeAnalysis.created_at.desc()).first()
+        latest_resume = db.query(models.ResumeAnalysis).filter(models.ResumeAnalysis.user_id == current_user.id).order_by(models.ResumeAnalysis.created_at.desc()).first()
         
         if not latest_resume or not latest_resume.missing_skills:
             # Fallback if no resume analysis exists
